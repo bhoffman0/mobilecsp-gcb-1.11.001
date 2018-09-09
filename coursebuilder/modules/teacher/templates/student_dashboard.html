@@ -1,0 +1,508 @@
+{% extends 'base_course.html' %}
+
+{% if alerts %}
+  <script>
+    $(function() {
+      cbShowAlert("{{ alerts | js_string }}");
+    });
+  </script>
+{% endif %}
+
+{% block subtitle %}
+  {# I18N: Title of the webpage. #}
+    {{ gettext('Progress Details for ') }} {{ student_email }}
+{% endblock subtitle %}
+
+{% block assets %}
+  {{ super() }}
+  <link rel="stylesheet" type="text/css" href="/modules/teacher/resources/css/student_progress.css" />
+  <link rel="stylesheet" type="text/css" href="/modules/teacher/resources/css/question_preview.css" />
+  <link rel="stylesheet" type="text/css" href="/modules/teacher/resources/css/teacher.css" />
+  <link rel="stylesheet" type="text/css" href="assets/lib/lessons/tipped.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/material-design-iconic-font/2.2.0/css/material-design-iconic-font.min.css">
+
+  <script type="text/javascript" src="/modules/teacher/resources/js/modal-window.js"></script>
+  <script type="text/javascript" src="/modules/teacher/resources/js/string-format.js"></script>
+  <script src="assets/lib/lessons/tipped.js"></script>
+
+  <script>
+    // Script to initialize the page when ready
+    $(document).ready(function() {
+
+      // Setup hovers
+      Tipped.create('.help', function(element) {
+        var help = $(element).data('id');
+        return documentation[help];
+      }, {
+            cache: false,
+            position: 'topleft'
+         });
+
+      // Initilize the modal window -- is this used?
+      setUpModalWindow();
+    });
+
+    var documentation = {
+       "course-completion": "Displays the percentage of the course (units and lessons) completed by this student.",
+       "unit-completion": "When a unit is selected, displays the percentage of that unit completed by the student.",
+       "unitselect": "Select a unit to see the lessons within the unit. Then click on a lesson.",
+       "lesson-title": "Clicking on a lesson title will bring up the lesson in a separate tab.",
+       "progress": "Student progress on a lesson is either 'Completed', 'In progress' or 'Not started'. A lesson is completed when all the questions and exercises are completed correctly.",
+       "scores": "Correct answers over total questions. N/A means either the lesson has no questions or none were yet attempted. The eye-icon brings up student attempts and scores on questions in this lesson.",
+       "questions": "Hovering on the question title (e.g, Q1) will display a description of the question. The eye-icon brings up an interactive preview of the question.",
+    };
+  </script>
+
+  <script>
+     function hasClass(elem, className) {
+       return elem.className.split(' ').indexOf(className) > -1;
+     }
+
+    $(function() {
+      // Handles updating the lesson select options and completion values
+      // Invoked when the user selects a Unit
+      $('.unit-select').change(function() {
+        $('#questions-container').empty();
+
+        // Update the student table with data for the selected unit
+        var newOptions = [];
+        if (this.value == 'course_completion') {
+          $('#student-unit-completion').html('<span class="hover help yui-wk-div" data-id="unit-completion"><b>Unit Completion: </b></span>' + 'N/A');
+          $('#progress-unit-completion').attr({'value': 0, 'width': 0});
+          $('#lessons-table-headings').css('visibility', 'hidden');  // Hide headings with hovers
+        } else {
+          var unitCompletion = studentJs['progress_dict']['unit_completion'][this.value];
+          $('#lessons-table-headings').css('visibility', 'visible'); // Display headings with hovers
+          $('#student-unit-completion').html('<span class="hover help yui-wk-div" data-id="unit-completion"><b>Unit Completion: </b></span>'
+            + unitCompletion + ' %');
+          $('#progress-unit-completion').attr('value', unitCompletion / 100);
+          $('#progress-unit-completion').attr('width', unitCompletion / 100);
+
+          var lessons = lessonsObject[this.value];
+          for (var i = 0; i < lessons.length; i++) {
+            newOptions.push({
+              key: lessons[i].lesson_id,
+              value: lessons[i].title
+            });
+          }
+        }
+
+        // Display the unit's lessons in a table with clickable lesson titles
+        var lessons = lessonsObject[this.value];
+        $('#lessons-table').empty();
+
+        if (!lessons) return;
+
+        for (var k = 0; k < lessons.length; k++) {
+          var lid = lessons[k]['lesson_id'];
+          var uid = lessons[k]['unit_id'];
+          var progress = studentJs['progress_dict']['lessons_progress'][uid][lid];   // 0, 1, or 2
+          var progressBar = progress / 2;
+          var progressStatus = (progress == 2) ? 'Completed' : ((progress == 1) ? 'In progress' : 'Not started');
+          var scoreRatio = get_lesson_progress(uid, lid);
+
+          $('#lessons-table').append(
+            '<tr> \
+              <td class="lessons-table-lesson"> \
+                <a target="_blank" href="/mobilecsp/unit?unit={0}&lesson={1}">{2}</a> \
+              </td> \
+              \
+              <td class="lessons-table-progress"> \
+                {3} <br> \
+                <progress class="student-course-progress" value={4}> \
+                  <div class="progress-bar" \
+                    <span style="width:{5}"></span> \
+                  </div> \
+                </progress> \
+              </td> \
+              \
+              <td class="lessons-table-scores"> \
+                <div class="zmdi zmdi-eye zmdi-{6}" unit_id={7} lesson_id={8}> \
+                  <div id=lesson-completion-{9} class="lesson-completion">{10}</div> \
+                </div> \
+              </td> \
+              \
+              <td class="lessons-table-questions"> \
+                <table id="question-attempts-{11}" class="question-attempts"></table> \
+              </td> \
+            </tr> \
+            '.format(
+              uid, lid, lessons[k]['title'],  // Lessons Title column
+              progressStatus, progressBar, progressBar, // Progress column
+              lid, uid, lid, lid, scoreRatio,  // Scores column
+              lid // Questions column
+            )
+          );
+        }
+
+        $('.zmdi-eye').click(function() {
+          handle_lesson_selection($(this).attr('unit_id'), $(this).attr('lesson_id'));
+        });
+
+      });
+    });
+  </script>
+{% endblock assets %}
+
+
+{% block top_content %}
+{% endblock %}
+
+{% block main_content %}
+{{ main_content }}
+
+{% if student_email %}
+  <script>
+    var student_email = '{{ student_email }}'.replace(/'/g, "\'");
+  </script>
+{% endif %}
+
+{% if lessons %}
+  <script>
+    var lessonsJson = '{{ lessons|safe }}';
+    var lessonsObject = jQuery.parseJSON(lessonsJson);
+        // unitid: lessonid: numCorrect
+    var questionTotalsJson = '{{ questionTotals|safe }}';
+    var questionTotals = jQuery.parseJSON(questionTotalsJson);
+        // unitid: lessonid: instanceid: quizname
+    var quizlyJson = '{{ quizlys|safe }}';
+    var quizlys = jQuery.parseJSON(quizlyJson); 
+        // unitid: lessonid: quid: description
+    var questionDescriptionsJson = '{{ questionDescriptions|safe }}';
+    var questionDescriptions = jQuery.parseJSON(questionDescriptionsJson); 
+      
+</script>
+{% endif %}
+
+{% if student %}
+  <script>
+    var studentDict = '{{ studentJs | safe }}';
+    var studentJs = jQuery.parseJSON(studentDict);
+  </script>
+{% endif %}
+
+
+{% if student_email  %}
+  <script>
+    /*
+     * Creates an array of [question_id, attempts, score] for each
+     *  question in the questions array.  These
+     *  data are used to render and array of links and hovers that enable the user
+     *  to preview  each question, including Quizlys.
+     *
+     * @param lessonAnswers is { totalCorrect:_, instance_id: { question_id: _, score: _, attempts: _}, instance_id: ...}
+     * @return An array of the form [id, attempts, score] for each question.
+     */
+     function createQuestionsAttemptsArray(lessonAnswers) {
+        var question_attempts = [];
+        for (var key in lessonAnswers) {
+          if (key == 'numCorrect')
+            continue;
+          var instanceid = key;    
+          var id = lessonAnswers[key]['question_id'];
+          var score = lessonAnswers[key]['score'];
+          /* No description in StudentAnswersEntity
+          var description = lessonAnswers[key]['description'];
+          var quizly_name = '';
+          var desc = '';
+          if (typeof(description) == 'object') {  // Quizly questions are described as dicts
+             desc = description['desc'];          //  of the form {desc, name}
+             quizly_name = description['name'];
+          } else {
+            desc = description;                   // Non-quizly desc's are just strings
+          }
+          var type = questions[key]['question_type'];
+          */
+          var attempts = lessonAnswers[key]['attempts'];
+          question_attempts.push([instanceid, id, attempts, score]);
+         
+        }
+      return question_attempts;
+    }
+
+
+    /*
+     * Retrieves the student's scores for the questions on a particular lesson.
+     *
+     * @param studentId the student's email
+     * @param unitId the unit number
+     * @param lessonId the lesson  number
+     * @param scores a dict containing the student's score data
+     * @return a array of the student's scores for the questions in given lessons
+     */
+    function getQuestionScoresForStudentByLesson(unitId, lessonId, scores) {
+      return (scores && scores[unitId] && scores[unitId][lessonId])
+        ? scores[unitId][lessonId]
+        : [];
+    }
+     // NEW: uses quizlys json from teacher.py
+    function getQuizName(unit_id, lesson_id, instanceid) {
+        return (quizlys[unit_id] && quizlys[unit_id][lesson_id] &&
+                quizlys[unit_id][lesson_id][instanceid])
+                ? quizlys[unit_id][lesson_id][instanceid]['quizname'] 
+                : "";
+    }
+    // NEW: uses questionDescriptions json from teacher.py
+    function getQuestionDescription(unit_id, lesson_id, quid) {
+        return (questionDescriptions[unit_id] && questionDescriptions[unit_id][lesson_id] &&
+                questionDescriptions[unit_id][lesson_id][quid])
+                ? questionDescriptions[unit_id][lesson_id][quid]['description'] 
+                : "";
+    }
+      
+    /*
+     * Creates an n x 6 HTML table for a given lesson of n questions
+     *  where each column consists of the question-id, the number
+     *  of attempts, the student's score, and several descriptors for the
+     *  question.
+     *
+     * @param lesson_id the lesson's id number
+     * @param attempts_array an array of the form [quid, attempts, score]
+     * @return an HTML table displaying the students attempts and scores
+     */
+    function get_attempts_table(unit_id, lesson_id, attempts_array) {
+      // Get and clear the table
+      var table = document.getElementById('question-attempts-' + lesson_id);
+      while (table.firstChild) {
+        table.removeChild(table.firstChild);
+      }
+      // Row 0 is for the question id and a clickable icon that will open the modal preview window
+      var row = table.insertRow(0);
+      var cell = row.insertCell(0);
+      cell.innerHTML = "Questions";
+
+      for (var i= 0; i < attempts_array.length; i++) {  // Question Ids
+        var cell = row.insertCell(i+1);
+        var instanceid =   attempts_array[i][0];
+        var id = attempts_array[i][1];
+
+        // Make a unique class name for each clickable icon -- icons from material design, see link above
+        var md_class_name = "zmdi zmdi-eye zmdi-" + id;
+        //var type = attempts_array[i][3];
+        //var desc = attempts_array[i][4];
+        //var qname = attempts_array[i][5];
+        // New: we have a quizly array now with quiznames in it
+        var qname = getQuizName(unit_id, lesson_id, instanceid);
+        //console.log(unit_id + lesson_id + instanceid + qname);
+        var description = "NA";
+        if (qname == null || qname == "")
+            description = " Self-check " + getQuestionDescription(unit_id, lesson_id,id);
+        else
+            description = " Quizly " + qname + " ";
+          
+        // InnerHTML stores specifics about the question and supports a tooltip.
+        //Old: cell.innerHTML = "<div class='{0}' id='Q{1}' uid='{2}'           lid='{3}' type='{4}' qname='{5}'> <div class='tooltip'> Q{6}<span class='tooltiptext'>{7}</span></div></div>"          .format(md_class_name, id, unit_id, lesson_id, type, qname, (i+1));
+          // New: 
+          cell.innerHTML = "<div class='{0}' id='Q{1}' uid='{2}'           lid='{3}' qname='{4}'> <div class='tooltip'> Q{5} <span class='tooltiptext'>{6}</span></div></div>".format(md_class_name, id, unit_id, lesson_id, qname,(i+1), description);
+          
+
+        var el = document.getElementById("Q" + id);
+        el.setAttribute('quid', id);
+      //  var type = el.getAttribute('type');
+          // Show quizly or self-check
+          //console.log("Qid: " + id);
+        if (id != null) { // Quizlys have no ids
+	         el.onclick = function() {  // Open a modal iframe to display the question
+             openModal();
+             modal = document.getElementById('question-preview');
+             modal.style.visibility = 'visible';
+             var params = {
+               action: 'question_preview',
+               quid: this.getAttribute('quid'),
+               student_email: student_email,
+               url: ''
+             };
+             $('#question-preview').html($('<iframe>').attr(
+               {src: 'teacher?' + $.param(params)})).show();
+           };
+        } else {
+            el.onclick = function() { // display Quizly
+              openModal();
+              modal = document.getElementById('question-preview');
+              modal.style.visibility = 'visible';
+              var params = {
+                action: 'question_preview',
+                quid: 0,                      // Quizly quiz
+                url: "/mobilecsp/assets/lib/quizly/gcb-index.html?backpack=hidden&selector=hidden&quizname="
+                      + this.getAttribute('qname')
+              };
+              $('#question-preview').html($('<iframe>').attr(
+                 {src: 'teacher?' + $.param(params)})).show();
+            };
+        } // else
+      } // for
+
+      // Row 1 is for the number of attempts
+      row = table.insertRow(1);
+      cell = row.insertCell(0);
+      cell.innerHTML = "Attempts";
+      for (var i= 0; i < attempts_array.length; i++) {
+        var cell = row.insertCell(i+1);
+        cell.innerHTML = attempts_array[i][2];
+        if (attempts_array[i][2] > 5) {
+            cell.className = 'issue';
+        }
+      }
+
+      // Row 2 is for the student's score
+      row = table.insertRow(2);
+      cell = row.insertCell(0);
+      cell.innerHTML = "Scores";
+      for (var i = 0; i < attempts_array.length; i++) {
+        var cell = row.insertCell(i+1);
+        cell.innerHTML = attempts_array[i][3];
+        if (attempts_array[i][3] != 1 && attempts_array[i][2] > 0) {
+            cell.className = 'issue';
+        }
+      }
+      return table;
+   } // def
+  </script>
+  <script>
+
+    /*
+     * Retrieves the lesson progress as a ratio of correct answers / number of questions.
+     */
+    function get_lesson_progress(unit_id, lesson_id) {
+      return (studentJs['scores'][unit_id] && studentJs['scores'][unit_id][lesson_id])
+            ? studentJs['scores'][unit_id][lesson_id]['numCorrect'] + "/" +
+                questionTotals[unit_id][lesson_id]
+            : 'N/A';
+    }
+
+    /*
+     * Handler for lesson selector. Displays a table of score quiz attempts and scores
+     *
+     * @param unit_id the id number of the unit
+     * @param lesson_id the id number of the lesson
+     */
+    function handle_lesson_selection(unit_id, lesson_id) {
+
+      // Remove existing tables
+      var tables = document.getElementsByClassName('question-attempts');
+      for (var i = 0; i < tables.length; i++) {
+        while(tables[i].firstChild) {
+          tables[i].removeChild(tables[i].firstChild);
+        }
+      }
+
+      var score_ratio = get_lesson_progress(unit_id, lesson_id);
+      var el = document.getElementById('lesson-completion-' + lesson_id);
+      el.innerHTML = score_ratio;
+
+       // If the lesson contains questions that have been attempted by the student, display them in a table.
+       var lessonAnswers = getQuestionScoresForStudentByLesson(unit_id, lesson_id, studentJs['scores']);
+       var attempts_array  = createQuestionsAttemptsArray(lessonAnswers);
+       if (attempts_array.length > 0) {
+         get_attempts_table(unit_id, lesson_id, attempts_array);
+       }
+    }
+  </script>
+{% else %}
+  <script>
+      cbShowMsg('Invalid student email {{ student_email }}');
+  </script>
+{% endif %}
+
+<div id="student-detail-section" {% if not student_email %} style="display: none;" {% endif %} >
+
+  <table id="student-detail-header-table">
+    <tr>
+      <td>
+        <h2>Progress Details for Student <span>{{ student.name }} ({{ student_email }})</span></h2>
+
+        <div>
+          <label class="student-course-completion">
+            <span class="hover help yui-wk-div" data-id="course-completion">
+              <b>Course Completion: </b>
+            </span>
+            {{ student.progress_dict.course_progress }} %
+          </label>
+
+          <progress class="student-course-progress" value="{{ student.progress_dict.course_progress|int / 100 }}">
+            <!-- Browsers that support the progress tag will ignore this div -->
+            <div class="progress-bar">
+             <span style="width: {{ student.progress_dict.course_progress|int / 100 }} ;"></span>
+             </div>
+          </progress>
+        </div>
+
+        <div>
+          By selecting a unit and then selecting lessons within units you can see detailed information on this student's progress and performance.
+          Click here for <a target="_blank" href="https://docs.google.com/document/d/1XKGfVl_tQDGF0JPQFKh-PKiVKkn5Qu3LOZEJEzpjoaY">additional instructions and documentation</a>.
+        </div>
+
+      </td>
+
+      <td class="td-button">
+        <button class="gcb-button" style="align:right;" type="submit" onclick="window.history.back()">Back to Roster</button>
+      </td>
+   </tr>
+  </table>
+
+  <table class="student-detail-table gcb-pull-left">
+    <tr>
+      <td>
+       <span class="hover help yui-wk-div" data-id="unitselect">
+         <label><b>Select a Unit: </b></label>
+       </span>
+
+       <select id="unit-select-widget" class="unit-select">
+          <option value="course_completion">Course</option>
+          {% if units %}
+	    {% set unit_num = 1 %} <!--  adding unit numbers -->
+            {% for unit in units %}
+            <!-- skip over archived lessons unit -->
+               {% if unit.type == 'U' and unit.unit_id != 176 %}
+                  <option value="{{ unit.unit_id }}"> Unit {{ unit_num }} {{ unit.title }}</option>
+                  {% set unit_num = unit_num + 1 %}
+	       {% endif %}
+            {% endfor %}
+          {% endif %}
+        </select>
+      </td>
+
+      <td>
+       <span class="hover help yui-wk-div" data-id="unit-completion">
+         <label id="student-unit-completion"><b>Unit Completion: </b>N/A</label>
+       </span>
+
+        <progress id="progress-unit-completion" class="student-unit-progress" value="0">
+          <!-- Browsers that support the progress tag will ignore this div -->
+          <div class="progress-bar">
+            <span style="width: 0%;"></span>
+          </div>
+        </progress>
+      </td>
+
+    </tr>
+  </table>
+
+
+  <table id="lessons-table-headings">
+    <tr>
+      <th style="width:25%;"><span class="hover help yui-wk-div" data-id="lesson-title">Lesson Title</span></th>
+      <th style="width:15%;"><span class="hover help yui-wk-div" data-id="progress">Progress</span></th>
+      <th style="width:10%;"><span class="hover help yui-wk-div" data-id="scores">Scores</span></th>
+      <th style="width:50%;"><span class="hover help yui-wk-div" data-id="questions">Questions</span></th>
+    </tr>
+  </table>
+
+  <table id="lessons-table">
+  </table>
+
+</div>
+
+<!-- Modal window for previewing questions -->
+<!-- Should be outside main div so main div can be opaque background. -->
+<div id="modal-window">
+  <div id="question-background"></div>
+  <div id="question-container">
+    <a id="question-close-button" class="gcb-button">Close</a>
+    <div id="question-preview">
+      <iframe id="question-preview"></iframe>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
