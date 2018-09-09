@@ -1,6 +1,6 @@
 #application:  mobilecsp-2017  # FIXME: Replace this with your application id
-#application:  mcsp-test1  # Beryl's test server
-#version: prod
+application:  mcsp-test1  # Beryl's test server
+version: prod
 #version: 1
 runtime: python27
 api_version: 1
